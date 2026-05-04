@@ -39,7 +39,7 @@ with st.sidebar:
     
     # 刪除老師 (從目前名單中移除)
     del_t = st.selectbox("選擇要隱藏的老師", st.session_state.teachers)
-    if st.button("❌ 隱藏選中老師"):
+    if st.button("❌ 刪除老師"):
         if len(st.session_state.teachers) > 1:
             st.session_state.teachers.remove(del_t)
             if st.session_state.current_teacher == del_t:
