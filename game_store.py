@@ -10,57 +10,61 @@ try:
     # 轉換為 CSV 匯出連結以進行讀取 (免金鑰)
     CSV_URL = SHEET_URL.replace("/edit?usp=sharing", "/export?format=csv")
     df = pd.read_csv(CSV_URL)
+    
+    # --- 自動化優化：清除髒資料並確保型別正確 ---
+    if not df.empty:
+        # 過濾掉「老師」欄位為空的行，並轉為字串
+        df = df.dropna(subset=["老師"])
+        df["老師"] = df["老師"].astype(str)
 except Exception as e:
     st.error("請檢查 Secrets 中的 SHEET_URL 設定。")
     st.stop()
 
-# --- 2. 老師管理邏輯 (側邊欄找回) ---
-if 'teachers' not in st.session_state:
-    # 優先從試算表抓取既有老師，若無則預設
-    if not df.empty and "老師" in df.columns:
-        st.session_state.teachers = df["老師"].unique().tolist()
-    else:
-        st.session_state.teachers = ["MLB", "分析師A"]
+# --- 2. 老師管理邏輯 (自動偵測新老師) ---
+# 自動從資料表抓取所有不重複的老師名字
+if not df.empty and "老師" in df.columns:
+    detected_teachers = sorted(df["老師"].unique().tolist())
+    # 將偵測到的老師與 Session State 同步
+    st.session_state.teachers = detected_teachers if detected_teachers else ["MLB"]
+else:
+    if 'teachers' not in st.session_state:
+        st.session_state.teachers = ["MLB"]
 
-if 'current_teacher' not in st.session_state:
+# 確保當前選中的老師在名單內
+if 'current_teacher' not in st.session_state or st.session_state.current_teacher not in st.session_state.teachers:
     st.session_state.current_teacher = st.session_state.teachers[0]
 
-# 側邊欄管理
+# 側邊欄保留手動微調功能
 with st.sidebar:
     st.header("👨‍🏫 老師管理系統")
+    st.info("系統會自動偵測試算表中的新老師。您也可以在此手動管理暫時名單。")
     
-    # 新增老師
-    new_t = st.text_input("輸入新老師姓名")
-    if st.button("新增老師"):
+    new_t = st.text_input("手動預增老師")
+    if st.button("手動新增"):
         if new_t and new_t not in st.session_state.teachers:
             st.session_state.teachers.append(new_t)
-            st.success(f"已新增: {new_t}")
             st.rerun()
 
     st.divider()
     
-    # 刪除老師 (從列表移除)
-    del_t = st.selectbox("選擇要移除的老師", st.session_state.teachers)
-    if st.button("❌ 移除選中老師"):
+    del_t = st.selectbox("移除顯示", st.session_state.teachers)
+    if st.button("❌ 移除"):
         if len(st.session_state.teachers) > 1:
             st.session_state.teachers.remove(del_t)
-            if st.session_state.current_teacher == del_t:
-                st.session_state.current_teacher = st.session_state.teachers[0]
             st.rerun()
-        else:
-            st.error("至少需保留一名老師")
 
-# --- 3. UI 佈局 (老師切換按鈕) ---
+# --- 3. UI 佈局 ---
 cols = st.columns(len(st.session_state.teachers) + 1)
 with cols[0]:
-    # 提供連結讓使用者去填單 (例如您做好的 Google 表單連結)
+    # 這裡可以改成您的 Google 表單連結
     if st.button("➕ 前往填單", type="primary"):
-        st.info(f"請點擊連結填寫資料：{SHEET_URL}")
+        st.info("💡 提示：若填入新老師姓名，提交後重新整理此頁面即可看到新按鈕。")
+        st.markdown(f"[👉 點我開啟填單系統 (支援多筆輸入)]({SHEET_URL})")
 
 for i, t in enumerate(st.session_state.teachers):
     with cols[i+1]:
         is_active = st.session_state.current_teacher == t
-        if st.button(t, type="primary" if is_active else "secondary"):
+        if st.button(t, key=f"btn_{t}", type="primary" if is_active else "secondary"):
             st.session_state.current_teacher = t
             st.rerun()
 
@@ -71,10 +75,9 @@ cur_t = st.session_state.current_teacher
 df_display = df[df["老師"] == cur_t] if not df.empty else pd.DataFrame()
 
 if not df_display.empty:
-    # 勝率計算邏輯
     total = len(df_display)
-    # 確保欄位名稱正確，並計算勾選正確的數量
-    wins = len(df_display[df_display["結果"].isin(["✅", "正確"])])
+    # 支援多種正確格式
+    wins = len(df_display[df_display["結果"].isin(["✅", "正確", "TRUE", True])])
     win_rate = (wins / total * 100) if total > 0 else 0
 
     c1, c2, c3 = st.columns(3)
@@ -85,4 +88,4 @@ if not df_display.empty:
     st.subheader(f"📍 {cur_t} 的歷史記錄")
     st.table(df_display.sort_index(ascending=False))
 else:
-    st.info(f"目前尚無 {cur_t} 的資料。")
+    st.info(f"目前尚無 {cur_t} 的資料。若剛填寫請稍候並重新整理。")
