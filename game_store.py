@@ -117,11 +117,17 @@ if not df_display.empty:
         slip_results = valid_df.groupby("注單編號")["結果"].apply(lambda x: all(x == "正確"))
         total_s = len(slip_results)
         wins_s = sum(slip_results)
-        rate_s = (wins_s / total_s * 100) if total_s > 0 else 0
-    else:
-        total_s, wins_s, rate_s = 0, 0, 0
-
-    # 顯示指標卡
+       # 顯示指標卡
     m1, m2 = st.columns(2)
-    m1.metric(f"🏀 {cur_t} 單場勝率", f"{rate_m:.1f}%", f"命中 {wins_m} / 總 {total_m} 場")
-    m2.metric(f"🎫 {cur_t} 注單勝率 (串關)", f"{rate_s:.1f}%", f"過關 {int(wins_s)}
+    m1.metric(f"單場勝率", f"{rate_m:.1f}%", f"命中 {wins_m} / 總 {total_m} 場")
+    
+    # 這裡確保引號完全對齊
+    label_s = f"注單勝率 (串關)"
+    val_s = f"{rate_s:.1f}%"
+    delta_s = f"過關 {int(wins_s)} / 總 {total_s} 張"
+    m2.metric(label_s, val_s, delta_s)
+
+    st.subheader(f"📍 {cur_t} 歷史賽事明細")
+    st.dataframe(df_display.iloc[::-1], use_container_width=True, hide_index=True)
+else:
+    st.info(f"目前尚無 {cur_t} 的數據紀錄，請先錄入賽事。")
