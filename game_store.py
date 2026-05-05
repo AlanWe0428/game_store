@@ -6,15 +6,21 @@ import time
 # 1. 頁面基本設定
 st.set_page_config(page_title="Sports Dashboard", layout="wide")
 
-# --- 隱藏右下角 Manage app 的 CSS ---
+# --- 加強版 CSS：嘗試隱藏工具列與 Manage app ---
 st.markdown("""
     <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    /* 隱藏右下角管理按鈕 */
-    .stAppToolbar {display: none;}
-    [data-testid="stStatusWidget"] {display: none;}
+    /* 隱藏頂部裝飾線與選單 */
+    header {visibility: hidden !important;}
+    #MainMenu {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
+    
+    /* 隱藏右下角 Manage app 控制項 */
+    .stAppDeployButton {display: none !important;}
+    div[data-testid="stStatusWidget"] {display: none !important;}
+    footer {display: none !important;}
+    
+    /* 針對新版 Streamlit 的管理按鈕隱藏 */
+    .st-emotion-cache-zq5wms {display: none !important;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -33,10 +39,13 @@ try:
     df = pd.read_csv(CSV_URL)
     
     if not df.empty:
+        # 清理並統一欄位型態
         df = df.dropna(subset=["老師"])
         df["老師"] = df["老師"].astype(str)
-        if "注單編號" not in df.columns:
-            df["注單編號"] = "N/A"
+        # 關鍵修正：確保所有資料都有注單編號，避免 iloc[0] 報錯
+        df["注單編號"] = df["注單編號"].fillna("無編號").astype(str)
+        df["日期"] = df["日期"].fillna("未知日期").astype(str)
+        
         all_teachers = sorted(df["老師"].unique().tolist())
     else:
         all_teachers = ["MLB"]
@@ -95,8 +104,8 @@ if not df_display.empty:
     t_m = len(df_display)
     w_m = len(df_display[df_display["結果"] == "正確"])
     
-    valid_df = df_display.dropna(subset=["注單編號"])
-    slip_res = valid_df.groupby("注單編號")["結果"].apply(lambda x: all(x == "正確"))
+    # 計算注單勝率
+    slip_res = df_display.groupby("注單編號")["結果"].apply(lambda x: all(x == "正確"))
     t_s = len(slip_res)
     w_s = sum(slip_res)
 
@@ -106,18 +115,21 @@ if not df_display.empty:
 
     st.subheader(f"📍 {cur_t} 歷史明細 (按注單收合)")
     
-    # --- 關鍵：按注單編號分組並收合 ---
-    # 取得所有注單編號並反轉（最新的在上面）
-    unique_slips = df_display["注單編號"].unique()[::-1]
+    # 取得不重複編號並過濾掉可能的空值
+    unique_slips = [s for s in df_display["注單編號"].unique() if str(s) != "nan"][::-1]
     
     for sid in unique_slips:
         slip_data = df_display[df_display["注單編號"] == sid]
-        # 判定這張單整體的結果
+        
+        # 安全檢查：如果這個編號沒有對應資料則跳過
+        if slip_data.empty:
+            continue
+            
         is_win = all(slip_data["結果"] == "正確")
-        date_str = slip_data["日期"].iloc[0]
+        # 安全取得日期
+        date_str = slip_data["日期"].iloc[0] if not slip_data["日期"].empty else "未知日期"
         status_icon = "✅" if is_win else "❌"
         
-        # Expander 標題顯示日期、編號與結果
         with st.expander(f"{status_icon} 日期：{date_str} | 注單：{sid} ({len(slip_data)} 場)"):
             st.table(slip_data[["對戰組合", "預測內容", "實際比分", "結果"]])
 else:
