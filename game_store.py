@@ -1,98 +1,82 @@
 import streamlit as st
 import pandas as pd
 import requests
+import time
 
-# 標題
-st.title("🏆 賽事雲端統計看板")
-
-# 1. 讀取資料 (使用 Secrets 變數)
+# --- 1. 讀取與初始化 ---
 try:
-    SHEET_URL = st.secrets["SHEET_URL"]
+    SHEET_ID = "1BnNF9vQntWgERSq1inqEOYXQywskIPAf_fROcZOEJRU"
+    CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
     GAS_URL = st.secrets["GAS_URL"]
-    
-    # 轉換 CSV 讀取連結
-    CSV_URL = SHEET_URL.replace("/edit?usp=sharing", "/export?format=csv")
-    # 這裡加入一個參數確保每次都讀到最新的資料
     df = pd.read_csv(CSV_URL)
     
-    # 清理資料：過濾掉空行，確保「老師」欄位是字串
     if not df.empty:
         df = df.dropna(subset=["老師"])
         df["老師"] = df["老師"].astype(str)
-        # 自動偵測所有不重複的老師名字
         st.session_state.teachers = sorted(df["老師"].unique().tolist())
     else:
-        if 'teachers' not in st.session_state:
-            st.session_state.teachers = ["MLB"]
-
-except Exception as e:
-    st.error(f"❌ 讀取失敗，請確認 Secrets 設定。詳細訊息: {e}")
+        st.session_state.teachers = ["MLB"]
+except:
+    st.error("讀取失敗")
     st.stop()
 
-# 確保當前選中的老師有效
-if 'current_teacher' not in st.session_state or st.session_state.current_teacher not in st.session_state.teachers:
-    st.session_state.current_teacher = st.session_state.teachers[0]
-
-# --- 2. UI 填單表單 ---
-with st.expander("📝 直接錄入新賽事", expanded=False):
-    with st.form("ui_form", clear_on_submit=True):
-        st.write("💡 填寫完畢按『確認存檔』後，網頁會自動重新整理更新數據。")
-        f_t = st.text_input("老師姓名 (輸入新名字會自動新增按鈕)")
+# --- 2. 多場賽事錄入介面 ---
+with st.expander("📝 錄入新注單 (支援串關/多場)", expanded=False):
+    with st.form("multi_match_form"):
+        f_t = st.text_input("老師姓名")
         f_date = st.date_input("日期")
-        f_match = st.text_input("對戰組合")
-        f_pred = st.text_input("預測內容")
-        f_score = st.text_input("實際比分")
-        f_res = st.radio("結果", ["正確", "錯誤", "✅", "❌"], horizontal=True)
         
-        if st.form_submit_button("確認存檔"):
-            if not f_t:
-                st.warning("請填寫老師姓名")
-            else:
-                payload = {
-                    "teacher": f_t,
-                    "date": f_date.strftime("%Y-%m-%d"),
-                    "match": f_match,
-                    "pred": f_pred,
-                    "score": f_score,
-                    "result": f_res
-                }
-                # 發送資料到 Google Apps Script 寫入
-                response = requests.post(GAS_URL, json=payload)
-                if response.status_code == 200:
-                    st.success(f"成功！資料已同步至雲端。")
-                    st.rerun()
-                else:
-                    st.error("傳送失敗，請確認 GAS 部署為『任何人』。")
+        # 使用一個 list 來存放這一張單的所有賽事
+        num_matches = st.number_input("這張單有幾場比賽？", min_value=1, max_value=10, value=1)
+        
+        match_data = []
+        for i in range(int(num_matches)):
+            st.markdown(f"**第 {i+1} 場賽事**")
+            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+            m = c1.text_input(f"對戰組合", key=f"m_{i}")
+            p = c2.text_input(f"預測內容", key=f"p_{i}")
+            s = c3.text_input(f"實際比分", key=f"s_{i}")
+            r = c4.selectbox(f"結果", ["正確", "錯誤"], key=f"r_{i}")
+            match_data.append({"match": m, "pred": p, "score": s, "result": r})
+            
+        if st.form_submit_button("確認提交整張注單"):
+            # 產生一個唯一的注單編號 (時間戳記)
+            slip_id = f"SLIP-{int(time.time())}"
+            
+            payload = {
+                "teacher": f_t,
+                "date": f_date.strftime("%Y-%m-%d"),
+                "slipId": slip_id,
+                "matches": match_data
+            }
+            
+            response = requests.post(GAS_URL, json=payload)
+            if response.status_code == 200:
+                st.success("整張注單已同步！")
+                st.rerun()
 
 st.divider()
 
-# --- 3. 看板顯示邏輯 ---
-# 顯示老師切換按鈕
-cols = st.columns(len(st.session_state.teachers))
-for i, t in enumerate(st.session_state.teachers):
-    with cols[i]:
-        is_active = st.session_state.current_teacher == t
-        if st.button(t, key=f"btn_{t}", type="primary" if is_active else "secondary"):
-            st.session_state.current_teacher = t
-            st.rerun()
+# --- 3. 核心計算邏輯：單場 vs 注單 ---
+cur_t = st.session_state.current_teacher # 假設已有切換老師邏輯
+df_t = df[df["老師"] == cur_t]
 
-# 統計數據計算
-cur_t = st.session_state.current_teacher
-df_display = df[df["老師"] == cur_t] if not df.empty else pd.DataFrame()
-
-if not df_display.empty:
-    total = len(df_display)
-    # 計算命中數：包含試算表中的 "正確" 或 "✅"
-    wins = len(df_display[df_display["結果"].isin(["✅", "正確"])])
-    win_rate = (wins / total * 100) if total > 0 else 0
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric(f"{cur_t} 總場數", f"{total} 場")
-    c2.metric("命中數", f"{wins} 場")
-    c3.metric("目前勝率", f"{win_rate:.1f}%")
-
-    st.subheader(f"📍 {cur_t} 的歷史記錄")
-    # 將資料反轉顯示，最新的在最上面
-    st.table(df_display.iloc[::-1])
-else:
-    st.info(f"目前尚無 {cur_t} 的資料。")
+if not df_t.empty:
+    # A. 單場統計
+    total_m = len(df_t)
+    wins_m = len(df_t[df_t["結果"] == "正確"])
+    
+    # B. 注單統計 (串關)
+    # 根據「注單編號」分組，如果該組內有任何一個「錯誤」，該注單就是錯誤
+    slip_stats = df_t.groupby("注單編號")["結果"].apply(lambda x: "正確" if all(x == "正確") else "錯誤")
+    total_s = len(slip_stats)
+    wins_s = len(slip_stats[slip_stats == "正確"])
+    
+    # UI 顯示
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric("單場勝率", f"{(wins_m/total_m*100):.1f}%", f"{wins_m}/{total_m} 場")
+    with c2:
+        st.metric("注單勝率 (串關)", f"{(wins_s/total_s*100):.1f}%", f"{wins_s}/{total_s} 張")
+    
+    st.table(df_t.iloc[::-1])
