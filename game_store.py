@@ -182,9 +182,15 @@ if not df_display.empty:
         
         status_icon = "💰" if s_ret > s_cost else ("❌" if s_ret < s_cost else "➖")
         
-        with st.expander(f"{status_icon} 日期：{date_str} | 成本：{s_cost} | 回收：{s_ret} | 編號：{sid}"):
-            cols = ["對戰組合", "特定球員", "預測內容", "實際比分", "結果"]
-            st.table(slip_data[[c for c in cols if c in slip_data.columns]])
+        with st.expander(f"{status} 日期：{slip_data['日期'].iloc[0]} | 成本：{s_cost} | 回收：{s_ret}"):
+            # 這裡加入安全性檢查，確保欄位存在才顯示
+            target_cols = ["對戰組合", "特定球員", "預測內容", "實際比分", "結果"]
+            available_cols = [c for c in target_cols if c in slip_data.columns]
+            
+            if available_cols:
+                st.table(slip_data[available_cols])
+            else:
+                st.write("此筆資料格式較舊，無法完整顯示表格。")
             
             # 刪除功能
             c_space, c_del = st.columns([5, 1])
