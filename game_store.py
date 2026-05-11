@@ -20,7 +20,7 @@ st.markdown("""
 
 st.title("🏆 賽事雲端統計看板")
 
-# 2. 讀取資料與安全性處理
+# 2. 讀取資料與安全性處理 (含補齊欄位邏輯)
 try:
     SHEET_URL = st.secrets["SHEET_URL"]
     GAS_URL = st.secrets["GAS_URL"]
@@ -32,8 +32,7 @@ try:
         
     df = pd.read_csv(CSV_URL)
     
-    # --- 重要：自動補齊欄位，防止舊資料導致 IndexError ---
-    # 這是確保您以前「沒編號、沒金額」的資料也能正常顯示與計算的關鍵
+    # 自動補齊舊資料缺少的欄位，防止計算崩潰
     required_cols = {
         "注單編號": "無編號",
         "特定球員": "",
@@ -46,18 +45,17 @@ try:
         if col not in df.columns:
             df[col] = default_val
 
-    # 數據整理與型態轉換
+    # 數據清理
     df["下注總額"] = pd.to_numeric(df["下注總額"], errors='coerce').fillna(0)
     df["領回金額"] = pd.to_numeric(df["領回金額"], errors='coerce').fillna(0)
     df["結果"] = df["結果"].astype(str).str.strip()
     df["老師"] = df["老師"].astype(str).str.strip()
     df["注單編號"] = df["注單編號"].fillna("無編號").astype(str).str.strip()
 
-    # --- 記憶選單提取 ---
+    # 記憶選單提取
     team_options = [""]
     player_options = [""]
     if not df.empty:
-        # 球隊記憶
         all_m = df["對戰組合"].dropna().astype(str).tolist()
         u_t = set()
         for m in all_m:
@@ -65,19 +63,15 @@ try:
             else: u_t.add(m.strip())
         team_options += sorted(list(u_t))
         
-        # 球員記憶
         u_p = set(df["特定球員"].dropna().astype(str).tolist())
         player_options += sorted([p for p in u_p if p.strip() != "" and p != "nan"])
-        
-        # 老師名單
         all_teachers = sorted(df["老師"].unique().tolist())
     else:
         all_teachers = ["MLB"]
 except Exception as e:
-    st.error(f"❌ 讀取失敗，請確認 Secrets 或試算表標題順序。")
+    st.error(f"❌ 讀取失敗，請確認 Secrets 設定。")
     st.stop()
 
-# 初始化選中的老師
 if 'current_teacher' not in st.session_state:
     st.session_state.current_teacher = all_teachers[0]
 
@@ -99,12 +93,12 @@ with st.expander("📝 錄入新注單 (自動記憶球隊/球員)", expanded=Fa
             c_t1, c_vs, c_t2 = st.columns([4, 1, 4])
             with c_t1:
                 t1_s = st.selectbox(f"選主隊", team_options, key=f"t1s_{i}")
-                t1_n = st.text_input(f"或手輸", key=f"t1n_{i}", placeholder="新主隊")
+                t1_n = st.text_input(f"手輸主隊", key=f"t1n_{i}")
                 final_t1 = t1_n if t1_n else t1_s
             with c_vs: st.markdown("<p style='text-align:center; padding-top:35px;'>VS</p>", unsafe_allow_html=True)
             with c_t2:
                 t2_s = st.selectbox(f"選客隊", team_options, key=f"t2s_{i}")
-                t2_n = st.text_input(f"或手輸", key=f"t2n_{i}", placeholder="新客隊")
+                t2_n = st.text_input(f"手輸客隊", key=f"t2n_{i}")
                 final_t2 = t2_n if t2_n else t2_s
             
             c_p1, c_p2 = st.columns(2)
@@ -152,7 +146,7 @@ for i, t_name in enumerate(all_teachers):
 
 st.divider()
 
-# --- 5. 數據統計與收合顯示 ---
+# --- 5. 數據統計與顯示 (恢復注單勝率並保留損益) ---
 cur_t = st.session_state.current_teacher
 df_disp = df[df["老師"] == cur_t].copy()
 
@@ -161,6 +155,45 @@ if not df_disp.empty:
     w_m = len(df_disp[df_disp["結果"] == "正確"])
     rate_m = (w_m / len(df_disp) * 100)
     
-    # B. 注單(串關)與損益統計
-    # 這裡做一個補強：如果舊資料沒編號，給它一個臨時編號以便單獨計算
-    df
+    # B. 注單(串關)與損益統計邏輯
+    df_calc = df_disp.copy()
+    mask = (df_calc["注單編號"] == "無編號") | (df_calc["注單編號"].isna())
+    df_calc.loc[mask, "注單編號"] = [f"TEMP-{i}" for i in range(mask.sum())]
+    
+    slip_money = df_calc.groupby("注單編號").first()
+    t_cost = slip_money["下注總額"].sum()
+    t_ret = slip_money["領回金額"].sum()
+    profit = t_ret - t_cost
+    roi = (profit / t_cost * 100) if t_cost > 0 else 0
+    
+    slip_res = df_calc.groupby("注單編號")["結果"].apply(lambda x: all(x == "正確"))
+    w_s = sum(slip_res)
+    rate_s = (w_s / len(slip_res) * 100)
+
+    # --- 重要：指標卡改為 4 個 ---
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("單場勝率", f"{rate_m:.1f}%", f"{w_m}/{len(df_disp)} 場")
+    m2.metric("注單勝率 (串關)", f"{rate_s:.1f}%", f"{int(w_s)}/{len(slip_res)} 張")
+    m3.metric("累積損益", f"${profit:,.0f}", f"投資額 ${t_cost:,.0f}")
+    m4.metric("總投報率 ROI", f"{roi:.1f}%")
+
+    st.subheader(f"📍 {cur_t} 歷史明細")
+    u_slips = df_calc["注單編號"].unique()[::-1]
+    
+    for sid in u_slips:
+        s_data = df_calc[df_calc["注單編號"] == sid]
+        if s_data.empty: continue
+        cost_val = s_data["下注總額"].iloc[0]
+        ret_val = s_data["領回金額"].iloc[0]
+        
+        icon = "💰" if ret_val > cost_val else ("❌" if ret_val < cost_val else "➖")
+        
+        with st.expander(f"{icon} 日期：{s_data['日期'].iloc[0]} | 成本：{cost_val} | 回收：{ret_val}"):
+            cols = ["對戰組合", "特定球員", "預測內容", "實際比分", "結果"]
+            st.table(s_data[[c for c in cols if c in s_data.columns]])
+            
+            if st.button("確認刪除此單", key=f"del_{sid}", type="primary"):
+                requests.post(GAS_URL, json={"action": "delete", "slipId": sid}, timeout=10)
+                st.rerun()
+else:
+    st.info(f"老師 {cur_t} 尚無數據。")
