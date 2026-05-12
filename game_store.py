@@ -131,9 +131,11 @@ with st.expander("📝 錄入新注單 (自動記憶球隊/球員)", expanded=Fa
                     st.rerun()
                 else:
                 st.error(f"❌ 伺服器回傳錯誤代碼: {res.status_code}")
+                
             except requests.exceptions.ReadTimeout:
             # 專門處理逾時：這種情況通常資料已經進去了
             st.warning("⚠️ 處理時間較長，資料可能已存檔，請重新整理網頁檢查。")
+            
             except Exception as e:
             st.error(f"❌ 連線發生預料外的異常：{e}")
 
