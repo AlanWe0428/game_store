@@ -124,20 +124,20 @@ with st.expander("📝 錄入新注單 (自動記憶球隊/球員)", expanded=Fa
                 "cost": f_cost, "returnVal": f_ret
             }
             try:
-                res = requests.post(GAS_URL, json=payload, timeout=20)
-                if res.status_code == 200:
-                    st.success("✅ 存檔成功！")
-                    time.sleep(1)
-                    st.rerun()                    
-                else:
-                    st.error(f"❌ 伺服器回傳錯誤代碼: {res.status_code}")
+                    res = requests.post(GAS_URL, json=payload, timeout=20) 
+                    
+                    if res.status_code == 200:
+                        st.success("✅ 存檔成功！")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(f"❌ 伺服器回傳錯誤代碼: {res.status_code}")
                 
-            except requests.exceptions.ReadTimeout:
-                # 專門處理逾時：這種情況通常資料已經進去了
-                st.warning("⚠️ 處理時間較長，資料可能已存檔，請重新整理網頁檢查。")
-            
-            except Exception as e:
-                st.error(f"❌ 連線發生預料外的異常：{e}")
+                except requests.exceptions.ReadTimeout:
+                    st.warning("⚠️ 處理時間較長，資料可能已存檔，請重新整理網頁檢查。")
+                
+                except Exception as e:
+                    st.error(f"❌ 連線發生預料外的異常：{e}")
 
 st.divider()
 
